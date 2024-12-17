@@ -2,7 +2,9 @@ import gradio as gr
 import os
 from pathlib import Path
 import glob
-from PIL import Image
+import subprocess
+import platform
+
 
 class ImageCaptionEditor:
     """
@@ -91,6 +93,62 @@ class ImageCaptionEditor:
         return None, "", "All fields cleared", ""
 
 
+def select_folder():
+    """Open native file dialog and return selected folder path using the operating system's native dialog"""
+    system = platform.system().lower()
+
+    try:
+        if system == "darwin":  # macOS
+            cmd = '''osascript -e 'tell application "System Events"
+                activate
+                set folderPath to choose folder
+                return POSIX path of folderPath
+            end tell' '''
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            folder_path = result.stdout.strip()
+            
+        elif system == "windows":  # Windows, using PowerShell's folder picker dialog
+            cmd = '''powershell -command "& {
+                Add-Type -AssemblyName System.Windows.Forms
+                $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+                $dialog.Description = 'Select a folder'
+                $dialog.ShowDialog() | Out-Null
+                $dialog.SelectedPath
+            }"'''
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            folder_path = result.stdout.strip()
+            
+        elif system == "linux":  # Linux
+            # Try using zenity (common on many Linux distros) sudo apt-get install zenity
+            try:
+                result = subprocess.run(
+                    ['zenity', '--file-selection', '--directory'],
+                    capture_output=True,
+                    text=True
+                )
+                folder_path = result.stdout.strip()
+            except FileNotFoundError:
+                # Fallback to kdialog if zenity is not available
+                try:
+                    result = subprocess.run(
+                        ['kdialog', '--getexistingdirectory'],
+                        capture_output=True,
+                        text=True
+                    )
+                    folder_path = result.stdout.strip()
+                except FileNotFoundError:
+                    print("Error: Neither zenity nor kdialog is installed. Please install one of them.")
+                    return None
+        else:
+            print(f"Unsupported operating system: {system}")
+            return None
+
+        return folder_path if folder_path else None
+        
+    except Exception as e:
+        print(f"Error selecting folder: {e}")
+        return None
+
 def create_interface():
     """
     Create and configure the Gradio interface
@@ -104,13 +162,13 @@ def create_interface():
         # Folder input and buttons section
         with gr.Column():
             with gr.Row():
-                folder_input = gr.Textbox(
-                    label="Enter or paste folder path",
-                    placeholder="e.g., /path/to/your/images/folder",
+                folder_display = gr.Textbox(
+                    label="Selected Folder",
+                    interactive=False,
                     scale=3
                 )
                 with gr.Column():
-                    load_btn = gr.Button("Load Folder")
+                    select_btn = gr.Button("Browse...", variant="primary")
                     clear_btn = gr.Button("Clear All Fields")
         
         # Image and caption section side by side
@@ -137,10 +195,20 @@ def create_interface():
         status_output = gr.Textbox(label="Status", interactive=False)
         
         # Connect UI elements to their corresponding functions
-        load_btn.click(
-            fn=editor.load_folder,
-            inputs=[folder_input],
-            outputs=[image_output, caption_input, status_output]
+        # Update the folder display when folder is selected
+        def update_folder_and_load(folder_path):
+            if folder_path:
+                result = editor.load_folder(folder_path)
+                return [folder_path, *result]
+            return [None, None, "", "No folder selected"]
+        
+        select_btn.click(
+            fn=select_folder,
+            outputs=folder_display
+        ).success(
+            fn=update_folder_and_load,
+            inputs=[folder_display],
+            outputs=[folder_display, image_output, caption_input, status_output]
         )
         
         next_btn.click(
@@ -164,7 +232,7 @@ def create_interface():
         clear_btn.click(
             fn=editor.clear_all,
             inputs=[],
-            outputs=[image_output, caption_input, status_output, folder_input]
+            outputs=[image_output, caption_input, status_output, folder_display]
         )
     
     return interface
