@@ -90,7 +90,18 @@ class ImageCaptionEditor:
         self.image_files = []
         self.current_index = 0
         self.folder_path = None
-        return None, "", "All fields cleared", ""
+        return None, "", "All fields cleared", "", 1
+
+    def jump_to_pair(self, index):
+        """Jump to a specific image index"""
+        try:
+            index = int(index) - 1  # Convert to 0-based index
+            if 0 <= index < len(self.image_files):
+                self.current_index = index
+                return self.get_current_pair()
+            return self.get_current_pair()[0], self.get_current_pair()[1], "Invalid image number"
+        except ValueError:
+            return self.get_current_pair()[0], self.get_current_pair()[1], "Please enter a valid number"
 
 
 def select_folder():
@@ -194,6 +205,17 @@ def create_interface():
         # Status display
         status_output = gr.Textbox(label="Status", interactive=False)
         
+        # Add Jump to Image feature below status
+        with gr.Row():
+            jump_input = gr.Number(
+                label="Jump to Image #",
+                minimum=1,
+                step=1,
+                interactive=True,
+                value=1  # Set default value to 1 to avoid the red validation error
+            )
+            jump_btn = gr.Button("Jump")
+        
         # Connect UI elements to their corresponding functions
         # Update the folder display when folder is selected
         def update_folder_and_load(folder_path):
@@ -232,7 +254,13 @@ def create_interface():
         clear_btn.click(
             fn=editor.clear_all,
             inputs=[],
-            outputs=[image_output, caption_input, status_output, folder_display]
+            outputs=[image_output, caption_input, status_output, folder_display, jump_input]
+        )
+        
+        jump_btn.click(
+            fn=editor.jump_to_pair,
+            inputs=[jump_input],
+            outputs=[image_output, caption_input, status_output]
         )
     
     return interface
